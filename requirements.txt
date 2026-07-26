@@ -1,1 +1,9 @@
-a
+gradio>=5.0.0
+fastapi>=0.115.0
+uvicorn>=0.34.0
+pydantic>=2.11.0
+python-dotenv>=1.1.0
+requests>=2.32.0
+pandas>=2.3.0
+numpy>=2.3.0
+plotly>=6.0.0
