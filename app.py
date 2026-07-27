@@ -1,71 +1,31 @@
-import gradio as gr
-from config import APP_NAME, APP_VERSION, AI_NAME
-
-
-def dashboard():
-    with gr.Blocks(
-        title=APP_NAME,
-        theme=gr.themes.Soft(),
-    ) as app:
-
-        gr.Markdown(
-            f"""
-# 🌌 {APP_NAME}
-### AI-Native Trading Operating System
-
-**Version:** {APP_VERSION}
 """
-        )
+COSMOS
+AI-Native Trading Operating System
 
-        with gr.Row():
+Application Entry Point
 
-            with gr.Column(scale=1):
-                gr.Markdown("## 📂 Navigation")
+Author: COSMOS Development Team
+License: MIT
+"""
 
-                gr.Button("🏠 Dashboard")
-                gr.Button("📈 Trade Intelligence")
-                gr.Button("🤖 AI Assistant")
-                gr.Button("💼 Portfolio")
-                gr.Button("📊 Market Watch")
-                gr.Button("🔌 Connectors")
-                gr.Button("⚙️ Settings")
-
-            with gr.Column(scale=3):
-
-                gr.Markdown("## 📊 Dashboard")
-
-                gr.Info("Welcome to COSMOS.")
-
-                gr.Markdown("""
-### System Status
-
-- ✅ Dashboard Ready
-- ✅ Architecture Complete
-- ✅ Repository Ready
-- 🚧 AI Engine (Coming Soon)
-- 🚧 MT5 Connector (Coming Soon)
-- 🚧 Binance Connector (Coming Soon)
-                """)
-
-            with gr.Column(scale=1):
-
-                gr.Markdown(f"## 🤖 {AI_NAME}")
-
-                chatbot = gr.Chatbot(
-                    height=400,
-                    label="AI Assistant"
-                )
-
-                msg = gr.Textbox(
-                    placeholder="Ask COSMOS..."
-                )
-
-                gr.Button("Send")
-
-    return app
+from frontend.dashboard import create_dashboard
 
 
-app = dashboard()
+def main() -> None:
+    """
+    Application entry point.
+
+    Initializes and launches the COSMOS dashboard.
+    """
+
+    app = create_dashboard()
+
+    app.launch(
+        server_name="0.0.0.0",
+        server_port=7860,
+        show_error=True,
+    )
+
 
 if __name__ == "__main__":
-    app.launch()
+    main()
