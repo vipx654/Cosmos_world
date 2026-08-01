@@ -26,7 +26,6 @@ def create_ai_panel() -> None:
         gr.Chatbot(
             label="Jarvis",
             height=350,
-            show_copy_button=True,
         )
 
         gr.Textbox(
