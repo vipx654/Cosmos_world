@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import gradio as gr
 
-from config import APP_NAME, APP_VERSION
+from core.config import settings
 
 
 def create_header() -> None:
@@ -23,11 +23,11 @@ def create_header() -> None:
 
         gr.Markdown(
             f"""
-# 🌌 {APP_NAME}
+# 🌌 {settings.APP_NAME}
 
 **AI-Native Trading Operating System**
 
-Version **{APP_VERSION}**
+Version **{settings.APP_VERSION}**
 """
         )
 
