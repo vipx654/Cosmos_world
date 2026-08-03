@@ -1,65 +1,21 @@
 """
 ===============================================================================
-COSMOS Database Connection Manager
+COSMOS Database Connection
 
-Handles SQLite database connection and SQLAlchemy session management.
+Initializes the database and creates all registered tables.
 
 Author: COSMOS Development Team
 License: MIT
 ===============================================================================
 """
 
-from pathlib import Path
-
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker
-
-# ---------------------------------------------------------------------
-# Database Location
-# ---------------------------------------------------------------------
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATABASE_FILE = BASE_DIR / "cosmos.db"
-
-DATABASE_URL = f"sqlite:///{DATABASE_FILE}"
-
-# ---------------------------------------------------------------------
-# SQLAlchemy Engine
-# ---------------------------------------------------------------------
-
-engine = create_engine(
-    DATABASE_URL,
-    echo=False,
-    future=True,
-)
-
-# ---------------------------------------------------------------------
-# Session Factory
-# ---------------------------------------------------------------------
-
-SessionLocal = sessionmaker(
-    bind=engine,
-    autoflush=False,
-    autocommit=False,
-)
-
-# ---------------------------------------------------------------------
-# Base Class
-# ---------------------------------------------------------------------
-
-Base = declarative_base()
+from database.base import Base
+from database.session import engine
 
 
-def get_db():
+def initialize_database() -> None:
     """
-    Return a database session.
-
-    Always closes the session after use.
+    Create all database tables registered with SQLAlchemy.
     """
-    db = SessionLocal()
 
-    try:
-        yield db
-    finally:
-        db.close()
+    Base.metadata.create_all(bind=engine)

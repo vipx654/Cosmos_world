@@ -30,5 +30,6 @@ class Settings:
 
     DEFAULT_TIMEFRAME: str = "M15"
 
-
+    DATABASE_URL: str = "sqlite:///cosmos.db"
+ 
 settings = Settings()
