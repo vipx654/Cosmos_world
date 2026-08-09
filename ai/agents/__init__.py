@@ -1,0 +1,3 @@
+"""
+COSMOS AI Agents Package
+"""
