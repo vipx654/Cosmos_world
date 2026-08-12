@@ -20,7 +20,6 @@ from typing import Any
 # ENUMS
 # =============================================================================
 
-
 class VolumeType(str, Enum):
     """
     Type of volume data available to COSMOS.
@@ -83,7 +82,6 @@ class ProfileLevelType(str, Enum):
 # VOLUME OBSERVATION
 # =============================================================================
 
-
 @dataclass
 class VolumeObservation:
     """
@@ -119,7 +117,6 @@ class VolumeObservation:
 # VOLUME SPIKE
 # =============================================================================
 
-
 @dataclass
 class VolumeSpike:
     """
@@ -151,11 +148,11 @@ class VolumeSpike:
 # VOLUME TREND
 # =============================================================================
 
-
 @dataclass
 class VolumeTrend:
     """
-    Represents the direction and behavior of volume over a lookback period.
+    Represents the direction and behavior of volume
+    over a lookback period.
     """
 
     direction: VolumeDirection = (
@@ -188,7 +185,6 @@ class VolumeTrend:
 # =============================================================================
 # VOLUME CONFIRMATION
 # =============================================================================
-
 
 @dataclass
 class VolumeConfirmation:
@@ -223,11 +219,11 @@ class VolumeConfirmation:
 # VOLUME PROFILE LEVEL
 # =============================================================================
 
-
 @dataclass
 class VolumeProfileLevel:
     """
-    Represents a significant price level derived from volume distribution.
+    Represents a significant price level derived
+    from volume distribution.
     """
 
     price: float
@@ -248,7 +244,6 @@ class VolumeProfileLevel:
 # =============================================================================
 # VOLUME PROFILE
 # =============================================================================
-
 
 @dataclass
 class VolumeProfile:
@@ -287,14 +282,13 @@ class VolumeProfile:
 # ACCUMULATION
 # =============================================================================
 
-
 @dataclass
 class AccumulationSignal:
     """
     Represents possible accumulation behavior.
 
-    This is a heuristic signal and does not claim knowledge of institutional
-    intent.
+    This is a heuristic signal and does not claim
+    knowledge of institutional intent.
     """
 
     detected: bool = False
@@ -316,14 +310,13 @@ class AccumulationSignal:
 # DISTRIBUTION
 # =============================================================================
 
-
 @dataclass
 class DistributionSignal:
     """
     Represents possible distribution behavior.
 
-    This is a heuristic signal and does not claim knowledge of institutional
-    intent.
+    This is a heuristic signal and does not claim
+    knowledge of institutional intent.
     """
 
     detected: bool = False
@@ -342,9 +335,79 @@ class DistributionSignal:
 
 
 # =============================================================================
-# VOLUME ANALYSIS
+# VOLUME PROBABILITY
 # =============================================================================
 
+@dataclass
+class VolumeProbability:
+    """
+    Represents directional probability derived from
+    independent volume evidence layers.
+    """
+
+    direction: VolumeDirection = (
+        VolumeDirection.NEUTRAL
+    )
+
+    bullish_probability: float = 50.0
+
+    bearish_probability: float = 50.0
+
+    neutral_probability: float = 50.0
+
+    confidence: float = 0.0
+
+    evidence: list[str] = field(
+        default_factory=list
+    )
+
+
+# =============================================================================
+# VOLUME AGENT RESULT
+# =============================================================================
+
+@dataclass
+class VolumeAgentResult:
+    """
+    Final result returned by the Volume Agent.
+    """
+
+    direction: VolumeDirection = (
+        VolumeDirection.NEUTRAL
+    )
+
+    probability: float = 50.0
+
+    confidence: float = 0.0
+
+    valid: bool = False
+
+    evidence: list[str] = field(
+        default_factory=list
+    )
+
+    validation: Any = None
+
+    spikes: list[VolumeSpike] = field(
+        default_factory=list
+    )
+
+    trend: VolumeTrend | None = None
+
+    confirmation: VolumeConfirmation | None = None
+
+    profile: VolumeProfile | None = None
+
+    accumulation: AccumulationSignal | None = None
+
+    distribution: DistributionSignal | None = None
+
+    probability_analysis: VolumeProbability | None = None
+
+
+# =============================================================================
+# VOLUME ANALYSIS
+# =============================================================================
 
 @dataclass
 class VolumeAnalysis:

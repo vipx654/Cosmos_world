@@ -37,7 +37,17 @@ class MarketContext:
     # Analysis Cache
     # -------------------------------------------------------------------------
 
-    results: dict[str, AgentResult] = field(default_factory=dict)
+    results: dict[str, AgentResult] = field(
+        default_factory=dict
+    )
+
+    # -------------------------------------------------------------------------
+    # Shared Agent Memory
+    # -------------------------------------------------------------------------
+
+    memory: dict[str, dict] = field(
+        default_factory=dict
+    )
 
     # -------------------------------------------------------------------------
     # Metadata

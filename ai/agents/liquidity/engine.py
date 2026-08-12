@@ -85,7 +85,7 @@ class LiquidityEngine:
     • Publish Result
     """
 
-    AGENT_NAME = "Liquidity"
+    AGENT_NAME = "liquidity"
 
     AGENT_VERSION = "1.0.0"
 

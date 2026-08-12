@@ -144,12 +144,12 @@ class TrendEngine:
             strength=momentum.confidence,
 
             structure=" → ".join(
-            s.value for s in structures[-6:]
+                s.value for s in structures[-6:]
             ),
 
             structures=[
-            s.value
-            for s in structures
+                s.value
+                for s in structures
             ],
 
             acceleration=(
@@ -168,6 +168,50 @@ class TrendEngine:
 
             ],
         )
+
+        # ---------------------------------------------------------
+        # Shared Memory
+        # ---------------------------------------------------------
+        #
+        # Downstream agents such as Liquidity, Sweep and SMC
+        # depend on Trend Agent output being available through
+        # MarketContext.memory.
+        #
+        # Keep the raw swing objects here because downstream
+        # structure engines consume them directly.
+        # ---------------------------------------------------------
+
+        context.memory["trend"] = {
+
+            "direction": direction,
+
+            "confidence": confidence,
+
+            "strength": momentum.confidence,
+
+            "structure": analysis.structure,
+
+            "structures": analysis.structures,
+
+            "acceleration": analysis.acceleration,
+
+            "momentum": analysis.momentum,
+
+            "swings": swings,
+
+            "ema": ema,
+
+            "momentum_analysis": momentum,
+
+            "trendline": trendline,
+
+            "reasons": analysis.reasons,
+
+        }
+
+        # ---------------------------------------------------------
+        # Final Result
+        # ---------------------------------------------------------
 
         result = AgentResult(
 
