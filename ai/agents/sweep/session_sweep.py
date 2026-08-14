@@ -2,7 +2,7 @@
 ===============================================================================
 COSMOS Session Sweep Engine
 
-Detects which trading session a sweep belongs to.
+Production session classification for institutional liquidity sweeps.
 
 Author: COSMOS Development Team
 License: MIT
@@ -12,105 +12,221 @@ License: MIT
 from __future__ import annotations
 
 from datetime import datetime
+from numbers import Real
 
+from ai.agents.sweep.constants import (
+    ASIAN_SESSION,
+    LONDON_SESSION,
+    NEW_YORK_SESSION,
+)
 from ai.agents.sweep.models import SweepObject
 
 
 class SessionSweepEngine:
     """
-    Tags sweeps with the trading session.
+    Assigns each sweep to a trading session.
 
-    V1
-    ----
-    • Asian
-    • London
-    • New York
+    V1 session model
+    ----------------
+    ASIAN       : 00:00 - 07:59
+    LONDON      : 08:00 - 12:59
+    NEW_YORK    : 13:00 - 21:59
+    AFTER_HOURS : 22:00 - 23:59
 
-    V2
-    ----
-    • Kill Zones
-    • Session Weight
-    • Session Probability
-    • Historical Session Statistics
+    Notes
+    -----
+    Session boundaries are intentionally expressed in the timezone of the
+    supplied candle timestamps. The engine does not guess a timezone or
+    silently convert timestamps.
+
+    V2 can add:
+
+    • Kill zones
+    • London/New York overlap
+    • Session weighting
+    • Session probability
+    • Historical session statistics
+    • DST-aware session calendars
     """
+
+    AFTER_HOURS_SESSION = "AFTER_HOURS"
 
     def analyze(
         self,
         sweeps: list[SweepObject],
         candles,
     ) -> list[SweepObject]:
+        """
+        Assign trading-session metadata to detected sweeps.
+
+        The input sweep objects are enriched in place and returned.
+        """
 
         if not sweeps:
             return sweeps
 
+        if candles is None:
+            return sweeps
+
+        try:
+            candle_count = len(candles)
+        except TypeError:
+            return sweeps
+
+        if candle_count == 0:
+            return sweeps
+
         for sweep in sweeps:
 
-            if sweep.candle_index >= len(candles):
+            if not isinstance(
+                sweep,
+                SweepObject,
+            ):
                 continue
 
-            candle = candles[sweep.candle_index]
+            candle_index = sweep.candle_index
 
+            if not isinstance(
+                candle_index,
+                int,
+            ):
+                continue
+
+            if candle_index < 0:
+                continue
+
+            if candle_index >= candle_count:
+                continue
+
+            candle = candles[candle_index]
+
+            timestamp = self._get_timestamp(
+                candle
+            )
+
+            if timestamp is None:
+                continue
+
+            session = self._classify_timestamp(
+                timestamp
+            )
+
+            if session is None:
+                continue
+
+            sweep.session = session
+            sweep.timestamp = timestamp
+
+            sweep.add_evidence(
+                f"{self._display_name(session)} Session Sweep"
+            )
+
+        return sweeps
+
+    # =========================================================================
+    # TIMESTAMP
+    # =========================================================================
+
+    @staticmethod
+    def _get_timestamp(
+        candle,
+    ) -> datetime | None:
+        """
+        Extract a candle timestamp.
+
+        COSMOS MarketCandle uses `timestamp`.
+
+        `time` is also supported for compatibility with external candle
+        implementations.
+        """
+
+        timestamp = getattr(
+            candle,
+            "timestamp",
+            None,
+        )
+
+        if timestamp is None:
             timestamp = getattr(
                 candle,
                 "time",
                 None,
             )
 
-            if timestamp is None:
-                continue
+        if isinstance(
+            timestamp,
+            datetime,
+        ):
+            return timestamp
 
-            if isinstance(timestamp, datetime):
-
-                hour = timestamp.hour
-
-            else:
-
-                hour = datetime.fromtimestamp(
-                    timestamp
-                ).hour
-
-            # -----------------------------------------
-            # Asian Session
-            # -----------------------------------------
-
-            if 0 <= hour < 8:
-
-                sweep.session = "ASIAN"
-
-                sweep.evidence.append(
-                    "Asian Session Sweep"
+        if isinstance(
+            timestamp,
+            Real,
+        ):
+            try:
+                return datetime.fromtimestamp(
+                    float(timestamp)
                 )
+            except (
+                OverflowError,
+                OSError,
+                ValueError,
+            ):
+                return None
 
-            # -----------------------------------------
-            # London Session
-            # -----------------------------------------
+        return None
 
-            elif 8 <= hour < 13:
+    # =========================================================================
+    # SESSION CLASSIFICATION
+    # =========================================================================
 
-                sweep.session = "LONDON"
+    @classmethod
+    def _classify_timestamp(
+        cls,
+        timestamp: datetime,
+    ) -> str | None:
+        """
+        Classify a timestamp using its local hour.
 
-                sweep.evidence.append(
-                    "London Session Sweep"
-                )
+        The timezone attached to an aware datetime is preserved. No implicit
+        timezone conversion is performed in V1.
+        """
 
-            # -----------------------------------------
-            # New York Session
-            # -----------------------------------------
+        hour = timestamp.hour
 
-            elif 13 <= hour < 22:
+        if 0 <= hour < 8:
+            return ASIAN_SESSION
 
-                sweep.session = "NEW_YORK"
+        if 8 <= hour < 13:
+            return LONDON_SESSION
 
-                sweep.evidence.append(
-                    "New York Session Sweep"
-                )
+        if 13 <= hour < 22:
+            return NEW_YORK_SESSION
 
-            else:
+        return cls.AFTER_HOURS_SESSION
 
-                sweep.session = "AFTER_HOURS"
+    # =========================================================================
+    # DISPLAY
+    # =========================================================================
 
-                sweep.evidence.append(
-                    "After Hours Sweep"
-                )
+    @classmethod
+    def _display_name(
+        cls,
+        session: str,
+    ) -> str:
+        """Convert internal session names into evidence labels."""
 
-        return sweeps
+        names = {
+            ASIAN_SESSION: "Asian",
+            LONDON_SESSION: "London",
+            NEW_YORK_SESSION: "New York",
+            cls.AFTER_HOURS_SESSION: "After Hours",
+        }
+
+        return names.get(
+            session,
+            session.replace(
+                "_",
+                " ",
+            ).title(),
+        )

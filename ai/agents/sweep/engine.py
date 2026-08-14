@@ -164,13 +164,9 @@ class SweepEngine:
         )
 
         liquidity_levels = (
-
             buy_side_levels
-
             +
-
             sell_side_levels
-
         )
 
         # ---------------------------------------------------------------------
@@ -200,13 +196,9 @@ class SweepEngine:
         # ---------------------------------------------------------------------
 
         all_sweeps = (
-
             buy_side
-
             +
-
             sell_side
-
         )
 
         # ---------------------------------------------------------------------
@@ -313,17 +305,11 @@ class SweepEngine:
         # ---------------------------------------------------------------------
 
         analysis = SweepAnalysis(
-
             direction=direction,
-
             confidence=overall_confidence,
-
             probability=probability,
-
             sweep_map=sweep_map,
-
             reasons=reasons,
-
         )
 
         # ---------------------------------------------------------------------
@@ -331,15 +317,10 @@ class SweepEngine:
         # ---------------------------------------------------------------------
 
         result = AgentResult(
-
             name=self.AGENT_NAME,
-
             confidence=overall_confidence,
-
             success=True,
-
             analysis=analysis,
-
         )
 
         # ---------------------------------------------------------------------
@@ -347,21 +328,13 @@ class SweepEngine:
         # ---------------------------------------------------------------------
 
         context.memory["sweep"] = {
-
             "analysis": analysis,
-
             "buy_side": buy_side,
-
             "sell_side": sell_side,
-
             "fake_sweeps": fake_sweeps,
-
             "confirmed": confirmed,
-
             "probability": probability,
-
             "confidence": overall_confidence,
-
         }
 
         # ---------------------------------------------------------------------
@@ -384,11 +357,9 @@ class SweepEngine:
     ) -> SweepDirection:
 
         if not sweeps:
-
             return SweepDirection.NEUTRAL
 
         bullish = 0
-
         bearish = 0
 
         for sweep in sweeps:
@@ -406,11 +377,9 @@ class SweepEngine:
                 bearish += 1
 
         if bullish > bearish:
-
             return SweepDirection.BULLISH
 
         if bearish > bullish:
-
             return SweepDirection.BEARISH
 
         return SweepDirection.NEUTRAL
@@ -425,23 +394,16 @@ class SweepEngine:
     ) -> float:
 
         if not sweeps:
-
             return 0.0
 
         total = sum(
-
             sweep.probability
-
             for sweep in sweeps
-
         )
 
         return round(
-
             total / len(sweeps),
-
             2,
-
         )
 
     # =========================================================================
@@ -459,25 +421,30 @@ class SweepEngine:
     ) -> list[str]:
 
         reasons = [
-
-            f"Buy Side Sweeps: "
-            f"{len(buy_side)}",
-
-            f"Sell Side Sweeps: "
-            f"{len(sell_side)}",
-
-            f"Confirmed Sweeps: "
-            f"{len(confirmed)}",
-
-            f"Possible Fake Sweeps: "
-            f"{len(fake_sweeps)}",
-
-            f"Average Probability: "
-            f"{probability:.2f}",
-
-            f"Overall Confidence: "
-            f"{confidence:.2f}",
-
+            (
+                f"Buy Side Sweeps: "
+                f"{len(buy_side)}"
+            ),
+            (
+                f"Sell Side Sweeps: "
+                f"{len(sell_side)}"
+            ),
+            (
+                f"Confirmed Sweeps: "
+                f"{len(confirmed)}"
+            ),
+            (
+                f"Possible Fake Sweeps: "
+                f"{len(fake_sweeps)}"
+            ),
+            (
+                f"Average Probability: "
+                f"{probability:.2f}"
+            ),
+            (
+                f"Overall Confidence: "
+                f"{confidence:.2f}"
+            ),
         ]
 
         return reasons

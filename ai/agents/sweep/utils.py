@@ -2,6 +2,8 @@
 ===============================================================================
 COSMOS Sweep Utilities
 
+Production utility functions for Sweep Agent analysis.
+
 Author: COSMOS Development Team
 License: MIT
 ===============================================================================
@@ -9,106 +11,203 @@ License: MIT
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from ai.agents.sweep.models import (
     SweepObject,
+    SweepStatus,
 )
 
 
-def strongest_sweep(
-    sweeps: list[SweepObject],
-) -> SweepObject | None:
+def _valid_sweeps(
+    sweeps: Iterable[SweepObject] | None,
+) -> list[SweepObject]:
     """
-    Returns the strongest sweep.
+    Return only valid SweepObject instances.
+
+    The original objects are preserved; no copies are created.
     """
 
-    if not sweeps:
+    if sweeps is None:
+        return []
+
+    return [
+        sweep
+        for sweep in sweeps
+        if isinstance(
+            sweep,
+            SweepObject,
+        )
+    ]
+
+
+def _score(
+    value: float,
+) -> float:
+    """
+    Normalize a Sweep score to the valid 0-100 range.
+    """
+
+    try:
+        numeric_value = float(value)
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0.0
+
+    if numeric_value != numeric_value:
+        return 0.0
+
+    if numeric_value == float("inf"):
+        return 100.0
+
+    if numeric_value == float("-inf"):
+        return 0.0
+
+    return max(
+        0.0,
+        min(
+            100.0,
+            numeric_value,
+        ),
+    )
+
+
+def strongest_sweep(
+    sweeps: Iterable[SweepObject] | None,
+) -> SweepObject | None:
+    """
+    Return the sweep with the highest strength.
+
+    Returns None when no valid sweeps are available.
+    """
+
+    valid = _valid_sweeps(
+        sweeps
+    )
+
+    if not valid:
         return None
 
     return max(
-        sweeps,
-        key=lambda x: x.strength,
+        valid,
+        key=lambda sweep: _score(
+            sweep.strength
+        ),
     )
 
 
 def weakest_sweep(
-    sweeps: list[SweepObject],
+    sweeps: Iterable[SweepObject] | None,
 ) -> SweepObject | None:
     """
-    Returns the weakest sweep.
+    Return the sweep with the lowest strength.
+
+    Returns None when no valid sweeps are available.
     """
 
-    if not sweeps:
+    valid = _valid_sweeps(
+        sweeps
+    )
+
+    if not valid:
         return None
 
     return min(
-        sweeps,
-        key=lambda x: x.strength,
+        valid,
+        key=lambda sweep: _score(
+            sweep.strength
+        ),
     )
 
 
 def average_probability(
-    sweeps: list[SweepObject],
+    sweeps: Iterable[SweepObject] | None,
 ) -> float:
     """
-    Average probability.
+    Calculate the average probability of valid sweeps.
     """
 
-    if not sweeps:
+    valid = _valid_sweeps(
+        sweeps
+    )
+
+    if not valid:
         return 0.0
 
-    return round(
-        sum(
-            x.probability
-            for x in sweeps
+    total = sum(
+        _score(
+            sweep.probability
         )
-        / len(sweeps),
+        for sweep in valid
+    )
+
+    return round(
+        total / len(valid),
         2,
     )
 
 
 def average_confidence(
-    sweeps: list[SweepObject],
+    sweeps: Iterable[SweepObject] | None,
 ) -> float:
     """
-    Average confidence.
+    Calculate the average confidence of valid sweeps.
     """
 
-    if not sweeps:
+    valid = _valid_sweeps(
+        sweeps
+    )
+
+    if not valid:
         return 0.0
 
-    return round(
-        sum(
-            x.confidence
-            for x in sweeps
+    total = sum(
+        _score(
+            sweep.confidence
         )
-        / len(sweeps),
+        for sweep in valid
+    )
+
+    return round(
+        total / len(valid),
         2,
     )
 
 
 def confirmed_sweeps(
-    sweeps: list[SweepObject],
+    sweeps: Iterable[SweepObject] | None,
 ) -> list[SweepObject]:
     """
-    Returns confirmed sweeps.
+    Return sweeps whose lifecycle status is CONFIRMED.
     """
+
+    valid = _valid_sweeps(
+        sweeps
+    )
 
     return [
         sweep
-        for sweep in sweeps
-        if sweep.status.value == "CONFIRMED"
+        for sweep in valid
+        if sweep.status
+        is SweepStatus.CONFIRMED
     ]
 
 
 def fake_sweeps(
-    sweeps: list[SweepObject],
+    sweeps: Iterable[SweepObject] | None,
 ) -> list[SweepObject]:
     """
-    Returns fake sweeps.
+    Return sweeps explicitly marked as fake.
     """
+
+    valid = _valid_sweeps(
+        sweeps
+    )
 
     return [
         sweep
-        for sweep in sweeps
-        if sweep.fake
+        for sweep in valid
+        if sweep.fake is True
     ]

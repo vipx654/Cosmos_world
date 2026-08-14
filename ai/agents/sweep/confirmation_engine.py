@@ -2,7 +2,7 @@
 ===============================================================================
 COSMOS Sweep Confirmation Engine
 
-Confirms institutional liquidity sweeps.
+Production confirmation layer for institutional liquidity sweeps.
 
 Author: COSMOS Development Team
 License: MIT
@@ -11,66 +11,134 @@ License: MIT
 
 from __future__ import annotations
 
-from ai.agents.sweep.models import SweepObject
+from ai.agents.sweep.models import (
+    SweepObject,
+    SweepStatus,
+)
 
 
 class ConfirmationEngine:
     """
-    Confirms detected sweeps.
+    Confirms detected liquidity sweeps using deterministic evidence scoring.
 
-    V1 Confirmation Rules
+    V1 confirmation factors
+    -----------------------
+    - Confidence
+    - Probability
+    - Strength
 
-    ✓ Confidence
-    ✓ Probability
-    ✓ Strength
+    A sweep is confirmed when at least two of the three factors meet the
+    confirmation threshold.
 
-    V2
+    Invalid, failed, or previously identified fake sweeps are never confirmed.
 
-    ✓ BOS
+    Future versions can extend the scoring model with:
 
-    ✓ CHOCH
-
-    ✓ FVG
-
-    ✓ Order Block
-
-    ✓ Trend
-
-    ✓ Volume
-
-    ✓ Session
-
-    ✓ Liquidity Density
+    - BOS
+    - CHOCH
+    - FVG
+    - Order Block
+    - Trend
+    - Volume
+    - Session
+    - Liquidity Density
     """
+
+    CONFIRMATION_THRESHOLD = 70.0
+    MIN_CONFIRMATION_FACTORS = 2
 
     def analyze(
         self,
         sweeps: list[SweepObject],
     ) -> list[SweepObject]:
+        """
+        Confirm valid sweeps.
+
+        The method mutates the existing SweepObject instances so downstream
+        pipeline stages retain the same objects and their accumulated evidence.
+        """
+
+        if not sweeps:
+            return []
 
         confirmed: list[SweepObject] = []
 
         for sweep in sweeps:
 
+            if not isinstance(
+                sweep,
+                SweepObject,
+            ):
+                continue
+
+            # ---------------------------------------------------------------
+            # Normalize scores before evaluation.
+            # ---------------------------------------------------------------
+
+            sweep.clamp_scores()
+
+            # ---------------------------------------------------------------
+            # Do not confirm terminal or explicitly invalidated sweeps.
+            # ---------------------------------------------------------------
+
+            if sweep.status in (
+                SweepStatus.FAILED,
+                SweepStatus.INVALID,
+            ):
+                continue
+
+            # ---------------------------------------------------------------
+            # Fake sweeps are intentionally excluded from confirmation.
+            # ---------------------------------------------------------------
+
+            if sweep.fake:
+                continue
+
+            # ---------------------------------------------------------------
+            # V1 evidence scoring.
+            # ---------------------------------------------------------------
+
             score = 0
 
-            if sweep.confidence >= 70:
+            if (
+                sweep.confidence
+                >= self.CONFIRMATION_THRESHOLD
+            ):
                 score += 1
 
-            if sweep.probability >= 70:
+            if (
+                sweep.probability
+                >= self.CONFIRMATION_THRESHOLD
+            ):
                 score += 1
 
-            if sweep.strength >= 70:
+            if (
+                sweep.strength
+                >= self.CONFIRMATION_THRESHOLD
+            ):
                 score += 1
 
-            if score >= 2:
+            # ---------------------------------------------------------------
+            # Confirmation decision.
+            # ---------------------------------------------------------------
 
-                sweep.evidence.append(
-                    "Sweep Confirmed"
-                )
+            if score < self.MIN_CONFIRMATION_FACTORS:
+                continue
 
-                confirmed.append(
-                    sweep
-                )
+            # ---------------------------------------------------------------
+            # Update lifecycle state.
+            # ---------------------------------------------------------------
+
+            sweep.status = SweepStatus.CONFIRMED
+
+            sweep.add_evidence(
+                "Sweep Confirmed"
+            )
+
+            sweep.add_evidence(
+                "Confirmation Threshold Met"
+            )
+
+            confirmed.append(sweep)
 
         return confirmed
