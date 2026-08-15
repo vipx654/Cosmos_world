@@ -68,19 +68,15 @@ class MitigationEngine:
             evidence: list[str] = []
 
             # ---------------------------------------------------------------
-            # Only inspect candles after the block was created.
+            # Inspect the candles supplied for mitigation analysis.
+            #
+            # The caller supplies the candles that should be evaluated
+            # against this order block. The block's candle_index belongs to
+            # the source candle used to create the block and must not be
+            # applied as an index into this mitigation-candle collection.
             # ---------------------------------------------------------------
 
-            start_index = (
-                block.candle_index + 1
-            )
-
-            for index in range(
-                start_index,
-                len(candles),
-            ):
-
-                candle = candles[index]
+            for candle in candles:
 
                 penetration = calculate_penetration(
                     candle,
