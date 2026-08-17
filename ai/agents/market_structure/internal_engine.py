@@ -4,6 +4,15 @@ COSMOS Internal Structure Engine
 
 Analyzes the internal market structure.
 
+Responsibilities:
+
+    - Internal bullish structure
+    - Internal bearish structure
+    - BOS / CHOCH contribution
+    - Structural strength
+    - Structural confidence
+    - Direction conflict handling
+
 Author: COSMOS Development Team
 License: MIT
 ===============================================================================
@@ -13,7 +22,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ai.agents.market_structure.models import StructureBias
+from ai.agents.market_structure.models import (
+    StructureBias,
+)
 
 
 # =============================================================================
@@ -24,7 +35,7 @@ from ai.agents.market_structure.models import StructureBias
 @dataclass(slots=True)
 class InternalStructureAnalysis:
     """
-    Internal market structure.
+    Internal market structure result.
     """
 
     bias: StructureBias
@@ -41,8 +52,16 @@ class InternalStructureAnalysis:
 
 class InternalStructureEngine:
     """
-    Determines the internal structure bias using
-    BOS and CHOCH.
+    Determines the internal market structure bias.
+
+    BOS provides the primary structural direction.
+
+    CHOCH provides additional confirmation that
+    internal structure is changing.
+
+    If both bullish and bearish structural signals
+    are present, the engine resolves the conflict
+    conservatively.
     """
 
     def analyze(
@@ -53,57 +72,202 @@ class InternalStructureEngine:
         bearish_choch: bool,
     ) -> InternalStructureAnalysis:
 
+        # =====================================================================
+        # 1. INITIAL STATE
+        # =====================================================================
+
+        bullish_strength = 0.0
+
+        bearish_strength = 0.0
+
+        bullish_confidence = 0.0
+
+        bearish_confidence = 0.0
+
+        # =====================================================================
+        # 2. BULLISH BOS
+        # =====================================================================
+
+        if bullish_bos:
+
+            bullish_strength += 60.0
+
+            bullish_confidence += 60.0
+
+        # =====================================================================
+        # 3. BULLISH CHOCH
+        # =====================================================================
+
+        if bullish_choch:
+
+            bullish_strength += 20.0
+
+            bullish_confidence += 15.0
+
+        # =====================================================================
+        # 4. BEARISH BOS
+        # =====================================================================
+
+        if bearish_bos:
+
+            bearish_strength += 60.0
+
+            bearish_confidence += 60.0
+
+        # =====================================================================
+        # 5. BEARISH CHOCH
+        # =====================================================================
+
+        if bearish_choch:
+
+            bearish_strength += 20.0
+
+            bearish_confidence += 15.0
+
+        # =====================================================================
+        # 6. BOUNDS
+        # =====================================================================
+
+        bullish_strength = min(
+
+            bullish_strength,
+
+            100.0,
+
+        )
+
+        bearish_strength = min(
+
+            bearish_strength,
+
+            100.0,
+
+        )
+
+        bullish_confidence = min(
+
+            bullish_confidence,
+
+            100.0,
+
+        )
+
+        bearish_confidence = min(
+
+            bearish_confidence,
+
+            100.0,
+
+        )
+
+        # =====================================================================
+        # 7. BIAS RESOLUTION
+        # =====================================================================
+
         bias = StructureBias.NEUTRAL
 
         strength = 0.0
 
         confidence = 0.0
 
-        # ---------------------------------------------------------
-        # Bullish Internal Structure
-        # ---------------------------------------------------------
+        # ---------------------------------------------------------------------
+        # Bullish dominance
+        # ---------------------------------------------------------------------
 
-        if bullish_bos:
+        if (
+
+            bullish_strength > bearish_strength
+
+        ):
 
             bias = StructureBias.BULLISH
 
-            strength += 60
+            strength = bullish_strength
 
-            confidence += 60
+            confidence = bullish_confidence
 
-        if bullish_choch:
+        # ---------------------------------------------------------------------
+        # Bearish dominance
+        # ---------------------------------------------------------------------
 
-            strength += 20
+        elif (
 
-            confidence += 15
+            bearish_strength > bullish_strength
 
-        # ---------------------------------------------------------
-        # Bearish Internal Structure
-        # ---------------------------------------------------------
-
-        if bearish_bos:
+        ):
 
             bias = StructureBias.BEARISH
 
-            strength += 60
+            strength = bearish_strength
 
-            confidence += 60
+            confidence = bearish_confidence
 
-        if bearish_choch:
+        # ---------------------------------------------------------------------
+        # Conflict / equal structure
+        # ---------------------------------------------------------------------
 
-            strength += 20
+        else:
 
-            confidence += 15
+            bias = StructureBias.NEUTRAL
 
-        strength = min(strength, 100.0)
+            strength = 0.0
 
-        confidence = min(confidence, 100.0)
+            confidence = 0.0
+
+        # =====================================================================
+        # 8. FINAL BOUNDS
+        # =====================================================================
+
+        strength = max(
+
+            0.0,
+
+            min(
+
+                100.0,
+
+                float(strength),
+
+            ),
+
+        )
+
+        confidence = max(
+
+            0.0,
+
+            min(
+
+                100.0,
+
+                float(confidence),
+
+            ),
+
+        )
+
+        # =====================================================================
+        # 9. RESULT
+        # =====================================================================
 
         return InternalStructureAnalysis(
 
             bias=bias,
 
-            strength=strength,
+            strength=round(
 
-            confidence=confidence,
+                strength,
+
+                2,
+
+            ),
+
+            confidence=round(
+
+                confidence,
+
+                2,
+
+            ),
+
         )

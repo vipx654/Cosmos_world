@@ -4,6 +4,15 @@ COSMOS External Structure Engine
 
 Analyzes the dominant market structure.
 
+Responsibilities:
+
+    - External bullish structure
+    - External bearish structure
+    - Dominant structural direction
+    - Structural strength
+    - Structural confidence
+    - Safe count handling
+
 Author: COSMOS Development Team
 License: MIT
 ===============================================================================
@@ -13,7 +22,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ai.agents.market_structure.models import StructureBias
+from ai.agents.market_structure.models import (
+    StructureBias,
+)
 
 
 # =============================================================================
@@ -24,7 +35,7 @@ from ai.agents.market_structure.models import StructureBias
 @dataclass(slots=True)
 class ExternalStructureAnalysis:
     """
-    Dominant market structure.
+    Dominant external market structure.
     """
 
     bias: StructureBias
@@ -41,10 +52,13 @@ class ExternalStructureAnalysis:
 
 class ExternalStructureEngine:
     """
-    Determines the dominant market structure.
+    Determines the dominant external market structure.
 
-    Unlike Internal Structure, this engine focuses
-    on the major trend.
+    External structure represents the larger structural
+    direction rather than short-term internal movement.
+
+    The engine compares bullish and bearish structural
+    evidence and assigns the dominant direction.
     """
 
     def analyze(
@@ -53,51 +67,156 @@ class ExternalStructureEngine:
         bearish_count: int,
     ) -> ExternalStructureAnalysis:
 
-        bias = StructureBias.NEUTRAL
+        # =====================================================================
+        # 1. NORMALIZE INPUT
+        # =====================================================================
 
-        strength = 0.0
+        bullish_count = max(
 
-        confidence = 0.0
+            0,
 
-        total = bullish_count + bearish_count
+            int(bullish_count),
+
+        )
+
+        bearish_count = max(
+
+            0,
+
+            int(bearish_count),
+
+        )
+
+        # =====================================================================
+        # 2. TOTAL STRUCTURAL EVIDENCE
+        # =====================================================================
+
+        total = (
+
+            bullish_count
+
+            + bearish_count
+
+        )
+
+        # =====================================================================
+        # 3. NO STRUCTURAL EVIDENCE
+        # =====================================================================
 
         if total == 0:
 
             return ExternalStructureAnalysis(
-                bias=bias,
+
+                bias=StructureBias.NEUTRAL,
+
                 strength=0.0,
+
                 confidence=0.0,
+
             )
+
+        # =====================================================================
+        # 4. BULLISH DOMINANCE
+        # =====================================================================
 
         if bullish_count > bearish_count:
 
             bias = StructureBias.BULLISH
 
             strength = (
-                bullish_count / total
-            ) * 100
+
+                bullish_count
+
+                / total
+
+            ) * 100.0
+
+        # =====================================================================
+        # 5. BEARISH DOMINANCE
+        # =====================================================================
 
         elif bearish_count > bullish_count:
 
             bias = StructureBias.BEARISH
 
             strength = (
-                bearish_count / total
-            ) * 100
+
+                bearish_count
+
+                / total
+
+            ) * 100.0
+
+        # =====================================================================
+        # 6. STRUCTURAL CONFLICT
+        # =====================================================================
+
+        else:
+
+            bias = StructureBias.NEUTRAL
+
+            strength = 0.0
+
+        # =====================================================================
+        # 7. CONFIDENCE
+        # =====================================================================
 
         confidence = strength
+
+        # =====================================================================
+        # 8. FINAL BOUNDS
+        # =====================================================================
+
+        strength = max(
+
+            0.0,
+
+            min(
+
+                100.0,
+
+                float(strength),
+
+            ),
+
+        )
+
+        confidence = max(
+
+            0.0,
+
+            min(
+
+                100.0,
+
+                float(confidence),
+
+            ),
+
+        )
+
+        # =====================================================================
+        # 9. RESULT
+        # =====================================================================
 
         return ExternalStructureAnalysis(
 
             bias=bias,
 
             strength=round(
+
                 strength,
+
                 2,
+
             ),
 
             confidence=round(
+
                 confidence,
+
                 2,
+
             ),
+
         )
