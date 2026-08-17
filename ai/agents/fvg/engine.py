@@ -10,19 +10,42 @@ Pipeline:
         ↓
     Bullish / Bearish Detection
         ↓
+    Detection Merge
+        ↓
     Mitigation
         ↓
     Inversion
-        ↓
-    Confirmation
         ↓
     Probability
         ↓
     Confidence
         ↓
+    Confirmation
+        ↓
     FVG Map
         ↓
+    Ranking / Direction
+        ↓
     FVG Analysis
+
+Design goals:
+
+    - Deterministic pipeline execution
+    - Correct dependency ordering
+    - No duplicated FVG logic inside the orchestrator
+    - Stable FVGAnalysis contract
+    - Correct post-inversion directional handling
+    - Confirmation based on finalized probability/confidence
+    - Safe handling of empty detection results
+    - Future-ready architecture for:
+        * BOS / CHOCH
+        * liquidity sweeps
+        * order blocks
+        * HTF confluence
+        * session analysis
+        * volume
+        * adaptive scoring
+        * historical calibration
 
 Author: COSMOS Development Team
 License: MIT
@@ -69,24 +92,31 @@ from ai.agents.fvg.probability_engine import (
     ProbabilityEngine,
 )
 
-from ai.agents.fvg.validator import (
-    FVGValidator,
-)
-
 from ai.agents.fvg.utils import (
     strongest_fvg,
+)
+
+from ai.agents.fvg.validator import (
+    FVGValidator,
 )
 
 
 class FVGEngine:
     """
-    Main Fair Value Gap Agent engine.
+    Main Fair Value Gap orchestration engine.
 
-    This class connects every FVG component without embedding the individual
-    detection/analysis rules directly inside the orchestrator.
+    The engine coordinates the individual FVG components but deliberately
+    keeps detection, mitigation, inversion, probability and confirmation
+    logic inside their dedicated modules.
+
+    This makes the orchestrator stable while allowing individual FVG
+    intelligence modules to evolve independently.
     """
 
     def __init__(self) -> None:
+        """
+        Initialize all FVG analysis components.
+        """
 
         self.validator = (
             FVGValidator()
@@ -108,16 +138,16 @@ class FVGEngine:
             InversionEngine()
         )
 
-        self.confirmation_engine = (
-            ConfirmationEngine()
-        )
-
         self.probability_engine = (
             ProbabilityEngine()
         )
 
         self.confidence_engine = (
             ConfidenceEngine()
+        )
+
+        self.confirmation_engine = (
+            ConfirmationEngine()
         )
 
         self.map_engine = (
@@ -134,11 +164,35 @@ class FVGEngine:
     ) -> FVGAnalysis:
         """
         Execute the complete FVG analysis pipeline.
+
+        Pipeline ordering is intentional:
+
+            detection
+                ↓
+            mitigation
+                ↓
+            inversion
+                ↓
+            probability
+                ↓
+            confidence
+                ↓
+            confirmation
+                ↓
+            mapping
+                ↓
+            ranking
+                ↓
+            final analysis
+
+        Probability and confidence are calculated BEFORE confirmation so the
+        confirmation engine evaluates the finalized FVG scores instead of
+        default/stale values.
         """
 
-        # ---------------------------------------------------------------------
-        # 1. Validate market context.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 1. VALIDATE CONTEXT
+        # =====================================================================
 
         self.validator.validate(
             context
@@ -146,55 +200,119 @@ class FVGEngine:
 
         candles = context.candles
 
-        # ---------------------------------------------------------------------
-        # 2. Detect bullish FVGs.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 2. DETECT BULLISH FVGs
+        # =====================================================================
 
-        bullish = (
+        bullish_fvgs = (
             self.bullish_engine.analyze(
                 candles
             )
         )
 
-        # ---------------------------------------------------------------------
-        # 3. Detect bearish FVGs.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 3. DETECT BEARISH FVGs
+        # =====================================================================
 
-        bearish = (
+        bearish_fvgs = (
             self.bearish_engine.analyze(
                 candles
             )
         )
 
-        # ---------------------------------------------------------------------
-        # 4. Combine detections.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 4. MERGE DETECTIONS
+        # =====================================================================
 
-        fvgs: list[FairValueGap] = (
-            bullish + bearish
-        )
+        fvgs: list[FairValueGap] = [
+            *bullish_fvgs,
+            *bearish_fvgs,
+        ]
 
-        # ---------------------------------------------------------------------
-        # 5. Mitigation analysis.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # FAST EMPTY RESULT
+        #
+        # Avoid running unnecessary downstream engines when no FVG exists.
+        # =====================================================================
+
+        if not fvgs:
+            fvg_map = (
+                self.map_engine.build(
+                    []
+                )
+            )
+
+            return FVGAnalysis(
+                direction=FVGDirection.NEUTRAL,
+                confidence=0.0,
+                probability=0.0,
+                fvg_map=fvg_map,
+                reasons=[
+                    "No actionable FVG detected"
+                ],
+                strongest_fvg=None,
+                strongest_bullish=None,
+                strongest_bearish=None,
+                confirmed_fvgs=[],
+            )
+
+        # =====================================================================
+        # 5. MITIGATION
+        #
+        # Determines whether each FVG is:
+        #
+        #     untouched
+        #     tested
+        #     partially filled
+        #     fully filled
+        # =====================================================================
 
         self.mitigation_engine.analyze(
             fvgs,
             candles,
         )
 
-        # ---------------------------------------------------------------------
-        # 6. Inversion analysis.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 6. INVERSION
+        #
+        # Inversion is evaluated after mitigation because the current market
+        # interaction should be reflected before the directional thesis is
+        # finalized.
+        # =====================================================================
 
         self.inversion_engine.analyze(
             fvgs,
             candles,
         )
 
-        # ---------------------------------------------------------------------
-        # 7. Confirmation.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 7. PROBABILITY
+        #
+        # Probability consumes the current FVG state after mitigation and
+        # inversion.
+        # =====================================================================
+
+        self.probability_engine.analyze(
+            fvgs
+        )
+
+        # =====================================================================
+        # 8. FINAL CONFIDENCE
+        #
+        # Confidence consumes the updated probability and strength values.
+        # This must happen before confirmation.
+        # =====================================================================
+
+        self.confidence_engine.analyze(
+            fvgs
+        )
+
+        # =====================================================================
+        # 9. CONFIRMATION
+        #
+        # Confirmation now evaluates the finalized confidence/probability
+        # instead of the initial/default values.
+        # =====================================================================
 
         confirmations = (
             self.confirmation_engine.analyze(
@@ -202,25 +320,12 @@ class FVGEngine:
             )
         )
 
-        # ---------------------------------------------------------------------
-        # 8. Probability.
-        # ---------------------------------------------------------------------
-
-        self.probability_engine.analyze(
-            fvgs
-        )
-
-        # ---------------------------------------------------------------------
-        # 9. Final confidence.
-        # ---------------------------------------------------------------------
-
-        self.confidence_engine.analyze(
-            fvgs
-        )
-
-        # ---------------------------------------------------------------------
-        # 10. Build organized map.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 10. BUILD FVG MAP
+        #
+        # Mapping is deliberately performed after all state-changing engines
+        # have completed.
+        # =====================================================================
 
         fvg_map = (
             self.map_engine.build(
@@ -228,9 +333,9 @@ class FVGEngine:
             )
         )
 
-        # ---------------------------------------------------------------------
-        # 11. Confirmed FVGs.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 11. EXTRACT CONFIRMED FVGs
+        # =====================================================================
 
         confirmed_fvgs = [
             confirmation.fvg
@@ -238,17 +343,20 @@ class FVGEngine:
             if confirmation.confirmed
         ]
 
-        # ---------------------------------------------------------------------
-        # 12. Determine strongest FVG.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 12. RANK STRONGEST CONFIRMED FVG
+        # =====================================================================
 
         strongest = strongest_fvg(
             confirmed_fvgs
         )
 
-        # ---------------------------------------------------------------------
-        # 13. Determine directional bias.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 13. SPLIT CONFIRMED FVGs BY DIRECTION
+        #
+        # Direction is evaluated AFTER inversion because an inverted FVG may
+        # legitimately change its active directional thesis.
+        # =====================================================================
 
         bullish_confirmed = [
             fvg
@@ -264,6 +372,10 @@ class FVGEngine:
             == FVGDirection.BEARISH
         ]
 
+        # =====================================================================
+        # 14. FIND STRONGEST DIRECTIONAL FVG
+        # =====================================================================
+
         strongest_bullish = (
             strongest_fvg(
                 bullish_confirmed
@@ -276,178 +388,287 @@ class FVGEngine:
             )
         )
 
-        # ---------------------------------------------------------------------
-        # Direction decision.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # 15. DETERMINE DIRECTIONAL BIAS
+        # =====================================================================
 
         direction = (
-            FVGDirection.NEUTRAL
+            self._determine_direction(
+                strongest_bullish,
+                strongest_bearish,
+            )
         )
+
+        # =====================================================================
+        # 16. AGGREGATE FINAL SCORES
+        # =====================================================================
+
+        confidence = (
+            self._average_confidence(
+                confirmed_fvgs
+            )
+        )
+
+        probability = (
+            self._average_probability(
+                confirmed_fvgs
+            )
+        )
+
+        # =====================================================================
+        # 17. BUILD ANALYSIS REASONS
+        # =====================================================================
+
+        reasons = (
+            self._build_reasons(
+                bullish_fvgs=bullish_fvgs,
+                bearish_fvgs=bearish_fvgs,
+                confirmed_fvgs=confirmed_fvgs,
+                fvg_map=fvg_map,
+                direction=direction,
+            )
+        )
+
+        # =====================================================================
+        # 18. FINAL RESULT
+        # =====================================================================
+
+        return FVGAnalysis(
+            direction=direction,
+            confidence=confidence,
+            probability=probability,
+            fvg_map=fvg_map,
+            reasons=reasons,
+            strongest_fvg=strongest,
+            strongest_bullish=strongest_bullish,
+            strongest_bearish=strongest_bearish,
+            confirmed_fvgs=confirmed_fvgs,
+        )
+
+    # =========================================================================
+    # DIRECTION
+    # =========================================================================
+
+    @staticmethod
+    def _determine_direction(
+        strongest_bullish: FairValueGap | None,
+        strongest_bearish: FairValueGap | None,
+    ) -> FVGDirection:
+        """
+        Determine the dominant confirmed FVG direction.
+
+        If both directions exist, confidence is used as the primary
+        discriminator and probability is used as a secondary discriminator.
+
+        Exact ties remain NEUTRAL rather than creating an artificial bias.
+        """
+
+        if (
+            strongest_bullish is None
+            and
+            strongest_bearish is None
+        ):
+            return FVGDirection.NEUTRAL
 
         if (
             strongest_bullish is not None
             and
             strongest_bearish is None
         ):
+            return FVGDirection.BULLISH
 
-            direction = (
-                FVGDirection.BULLISH
-            )
-
-        elif (
+        if (
             strongest_bearish is not None
             and
             strongest_bullish is None
         ):
+            return FVGDirection.BEARISH
 
-            direction = (
-                FVGDirection.BEARISH
-            )
+        bullish_confidence = float(
+            strongest_bullish.confidence
+        )
 
-        elif (
-            strongest_bullish is not None
-            and
-            strongest_bearish is not None
+        bearish_confidence = float(
+            strongest_bearish.confidence
+        )
+
+        if (
+            bullish_confidence
+            >
+            bearish_confidence
         ):
+            return FVGDirection.BULLISH
 
-            if (
-                strongest_bullish.confidence
-                >
-                strongest_bearish.confidence
-            ):
+        if (
+            bearish_confidence
+            >
+            bullish_confidence
+        ):
+            return FVGDirection.BEARISH
 
-                direction = (
-                    FVGDirection.BULLISH
-                )
+        bullish_probability = float(
+            strongest_bullish.probability
+        )
 
-            elif (
-                strongest_bearish.confidence
-                >
-                strongest_bullish.confidence
-            ):
+        bearish_probability = float(
+            strongest_bearish.probability
+        )
 
-                direction = (
-                    FVGDirection.BEARISH
-                )
+        if (
+            bullish_probability
+            >
+            bearish_probability
+        ):
+            return FVGDirection.BULLISH
 
-        # ---------------------------------------------------------------------
-        # Aggregate confidence.
-        # ---------------------------------------------------------------------
+        if (
+            bearish_probability
+            >
+            bullish_probability
+        ):
+            return FVGDirection.BEARISH
 
-        if confirmed_fvgs:
+        return FVGDirection.NEUTRAL
 
-            confidence = round(
-                sum(
-                    fvg.confidence
-                    for fvg in confirmed_fvgs
-                )
-                /
-                len(confirmed_fvgs),
-                2,
+    # =========================================================================
+    # SCORE AGGREGATION
+    # =========================================================================
+
+    @staticmethod
+    def _average_confidence(
+        fvgs: list[FairValueGap],
+    ) -> float:
+        """
+        Calculate average confidence of confirmed FVGs.
+        """
+
+        if not fvgs:
+            return 0.0
+
+        return round(
+            sum(
+                float(fvg.confidence)
+                for fvg in fvgs
             )
+            / len(fvgs),
+            2,
+        )
 
-            probability = round(
-                sum(
-                    fvg.probability
-                    for fvg in confirmed_fvgs
-                )
-                /
-                len(confirmed_fvgs),
-                2,
+    @staticmethod
+    def _average_probability(
+        fvgs: list[FairValueGap],
+    ) -> float:
+        """
+        Calculate average probability of confirmed FVGs.
+        """
+
+        if not fvgs:
+            return 0.0
+
+        return round(
+            sum(
+                float(fvg.probability)
+                for fvg in fvgs
             )
+            / len(fvgs),
+            2,
+        )
 
-        else:
+    # =========================================================================
+    # REASONS
+    # =========================================================================
 
-            confidence = 0.0
-
-            probability = 0.0
-
-        # ---------------------------------------------------------------------
-        # Analysis reasons.
-        # ---------------------------------------------------------------------
+    @staticmethod
+    def _build_reasons(
+        bullish_fvgs: list[FairValueGap],
+        bearish_fvgs: list[FairValueGap],
+        confirmed_fvgs: list[FairValueGap],
+        fvg_map,
+        direction: FVGDirection,
+    ) -> list[str]:
+        """
+        Build a concise explanation of the final FVG analysis.
+        """
 
         reasons: list[str] = []
 
-        if bullish:
+        # ---------------------------------------------------------------------
+        # Detection
+        # ---------------------------------------------------------------------
 
+        if bullish_fvgs:
             reasons.append(
-                f"{len(bullish)} Bullish FVG(s) detected"
+                f"{len(bullish_fvgs)} Bullish FVG(s) detected"
             )
 
-        if bearish:
-
+        if bearish_fvgs:
             reasons.append(
-                f"{len(bearish)} Bearish FVG(s) detected"
+                f"{len(bearish_fvgs)} Bearish FVG(s) detected"
             )
+
+        # ---------------------------------------------------------------------
+        # Confirmation
+        # ---------------------------------------------------------------------
 
         if confirmed_fvgs:
-
             reasons.append(
                 f"{len(confirmed_fvgs)} FVG(s) confirmed"
             )
 
-        if fvg_map.fresh:
+        # ---------------------------------------------------------------------
+        # Lifecycle
+        # ---------------------------------------------------------------------
 
+        if fvg_map.fresh:
             reasons.append(
                 f"{len(fvg_map.fresh)} Fresh FVG(s)"
             )
 
-        if fvg_map.partial:
+        if fvg_map.tested:
+            reasons.append(
+                f"{len(fvg_map.tested)} Tested FVG(s)"
+            )
 
+        if fvg_map.partial:
             reasons.append(
                 f"{len(fvg_map.partial)} Partially mitigated FVG(s)"
             )
 
         if fvg_map.filled:
-
             reasons.append(
                 f"{len(fvg_map.filled)} Filled FVG(s)"
             )
 
-        if fvg_map.inverted:
+        if fvg_map.invalid:
+            reasons.append(
+                f"{len(fvg_map.invalid)} Invalid FVG(s)"
+            )
 
+        # ---------------------------------------------------------------------
+        # Inversion
+        # ---------------------------------------------------------------------
+
+        if fvg_map.inverted:
             reasons.append(
                 f"{len(fvg_map.inverted)} Inverted FVG(s)"
             )
 
-        if direction != FVGDirection.NEUTRAL:
+        # ---------------------------------------------------------------------
+        # Direction
+        # ---------------------------------------------------------------------
 
+        if direction != FVGDirection.NEUTRAL:
             reasons.append(
                 f"FVG Direction: {direction.value}"
             )
 
-        if not reasons:
+        # ---------------------------------------------------------------------
+        # Fallback
+        # ---------------------------------------------------------------------
 
+        if not reasons:
             reasons.append(
                 "No actionable FVG detected"
             )
 
-        # ---------------------------------------------------------------------
-        # Final result.
-        # ---------------------------------------------------------------------
-
-        return FVGAnalysis(
-
-            direction=direction,
-
-            confidence=confidence,
-
-            probability=probability,
-
-            fvg_map=fvg_map,
-
-            reasons=reasons,
-
-            strongest_fvg=strongest,
-
-            strongest_bullish=(
-                strongest_bullish
-            ),
-
-            strongest_bearish=(
-                strongest_bearish
-            ),
-
-            confirmed_fvgs=confirmed_fvgs,
-
-        )
+        return reasons
