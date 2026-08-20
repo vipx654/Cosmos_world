@@ -1,11 +1,47 @@
 """
 ===============================================================================
-COSMOS Fair Value Gap Constants V2
+COSMOS Fair Value Gap Constants V3
 
-Central configuration for FVG detection, lifecycle analysis, scoring,
-confluence, ranking and inversion.
+Central configuration for the COSMOS Fair Value Gap intelligence system.
 
-All scoring thresholds are deterministic and bounded to 0-100.
+This module contains deterministic configuration only.
+
+Responsibilities:
+    - score bounds
+    - detection limits
+    - gap quality thresholds
+    - displacement thresholds
+    - lifecycle / mitigation thresholds
+    - inversion confirmation
+    - confirmation scoring
+    - confluence weighting
+    - probability weighting
+    - confidence weighting
+    - ranking weighting
+    - decision thresholds
+    - evidence limits
+    - numerical safety
+    - engine metadata
+
+Architecture rule:
+
+    constants.py
+        ↓
+    FVG models
+        ↓
+    detection / lifecycle engines
+        ↓
+    scoring / confluence engines
+        ↓
+    confirmation / ranking
+        ↓
+    FVGEngine
+
+IMPORTANT:
+    These values are deterministic heuristics.
+
+    Probability is NOT a statistically validated win probability.
+    It must not be interpreted as a guaranteed trading outcome.
 
 Author: COSMOS Development Team
 License: MIT
@@ -16,16 +52,20 @@ from __future__ import annotations
 
 
 # =============================================================================
-# ENGINE
+# ENGINE METADATA
 # =============================================================================
 
-ENGINE_VERSION = "2.0.0"
+ENGINE_VERSION = "3.0.0"
 
 AGENT_NAME = "fvg"
 
+DEFAULT_SOURCE = "FVGEngine"
+
+DEFAULT_TIMEFRAME = "UNKNOWN"
+
 
 # =============================================================================
-# SCORE RANGES
+# GLOBAL SCORE BOUNDS
 # =============================================================================
 
 MIN_SCORE = 0.0
@@ -43,6 +83,9 @@ MAX_STRENGTH = MAX_SCORE
 MIN_QUALITY_SCORE = MIN_SCORE
 MAX_QUALITY_SCORE = MAX_SCORE
 
+MIN_CONFLUENCE_SCORE = MIN_SCORE
+MAX_CONFLUENCE_SCORE = 100.0
+
 MIN_RANKING_SCORE = MIN_SCORE
 MAX_RANKING_SCORE = MAX_SCORE
 
@@ -52,8 +95,16 @@ MAX_RANKING_SCORE = MAX_SCORE
 # =============================================================================
 
 DEFAULT_CONFIDENCE = 50.0
+
 DEFAULT_PROBABILITY = 50.0
+
 DEFAULT_STRENGTH = 50.0
+
+DEFAULT_QUALITY_SCORE = 50.0
+
+DEFAULT_CONFLUENCE_SCORE = 50.0
+
+DEFAULT_RANKING_SCORE = 50.0
 
 
 # =============================================================================
@@ -61,10 +112,15 @@ DEFAULT_STRENGTH = 50.0
 # =============================================================================
 
 VERY_LOW_QUALITY = 20.0
+
 LOW_QUALITY = 40.0
+
 MODERATE_QUALITY = 60.0
+
 HIGH_QUALITY = 75.0
+
 VERY_HIGH_QUALITY = 90.0
+
 EXTREME_QUALITY = 95.0
 
 
@@ -82,7 +138,7 @@ MAX_FVG_COUNT = 200
 
 
 # =============================================================================
-# GAP SETTINGS
+# GAP SIZE / SIGNIFICANCE
 # =============================================================================
 
 MIN_GAP_SIZE = 0.0
@@ -121,19 +177,6 @@ EXTREME_DISPLACEMENT_SCORE = 85.0
 
 
 # =============================================================================
-# MITIGATION
-# =============================================================================
-
-PARTIAL_FILL_RATIO = 0.50
-
-MIDPOINT_FILL_RATIO = 0.50
-
-DEEP_FILL_RATIO = 0.75
-
-FULL_FILL_RATIO = 1.00
-
-
-# =============================================================================
 # FVG AGE
 # =============================================================================
 
@@ -144,6 +187,19 @@ FRESH_MAX_AGE = 3
 YOUNG_MAX_AGE = 10
 
 MATURE_MAX_AGE = 50
+
+
+# =============================================================================
+# MITIGATION / FILL
+# =============================================================================
+
+PARTIAL_FILL_RATIO = 0.50
+
+MIDPOINT_FILL_RATIO = 0.50
+
+DEEP_FILL_RATIO = 0.75
+
+FULL_FILL_RATIO = 1.00
 
 
 # =============================================================================
@@ -186,6 +242,11 @@ STRONG_CONFIRMATION_STRENGTH = 70.0
 
 # =============================================================================
 # CONFLUENCE WEIGHTS
+#
+# MUST sum to 1.00.
+#
+# These are deliberately separated so future agents can feed real confluence
+# values into the FVG system without changing the orchestration architecture.
 # =============================================================================
 
 TREND_WEIGHT = 0.10
@@ -213,8 +274,6 @@ DISPLACEMENT_WEIGHT = 0.10
 # CONFLUENCE THRESHOLDS
 # =============================================================================
 
-MAX_CONFLUENCE_SCORE = 100.0
-
 HIGH_CONFLUENCE_SCORE = 70.0
 
 VERY_HIGH_CONFLUENCE_SCORE = 85.0
@@ -225,7 +284,10 @@ CONFLICT_PENALTY_MAX = 30.0
 # =============================================================================
 # PROBABILITY WEIGHTS
 #
-# This remains a heuristic score, not a statistically validated win rate.
+# MUST sum to 1.00.
+#
+# Heuristic only.
+# NOT a calibrated statistical win probability.
 # =============================================================================
 
 PROBABILITY_BASE_WEIGHT = 0.20
@@ -243,6 +305,8 @@ PROBABILITY_DISPLACEMENT_WEIGHT = 0.10
 
 # =============================================================================
 # CONFIDENCE WEIGHTS
+#
+# MUST sum to 1.00.
 # =============================================================================
 
 CONFIDENCE_QUALITY_WEIGHT = 0.30
@@ -258,6 +322,8 @@ CONFIDENCE_VALIDITY_WEIGHT = 0.10
 
 # =============================================================================
 # RANKING WEIGHTS
+#
+# MUST sum to 1.00.
 # =============================================================================
 
 RANKING_CONFIDENCE_WEIGHT = 0.20
@@ -322,22 +388,6 @@ MAX_EVIDENCE_BONUS = 10.0
 
 
 # =============================================================================
-# PRICE PRECISION
-# =============================================================================
-
-DEFAULT_PRICE_PRECISION = 8
-
-
-# =============================================================================
-# DEFAULT METADATA
-# =============================================================================
-
-DEFAULT_TIMEFRAME = "UNKNOWN"
-
-DEFAULT_SOURCE = "FVGEngine"
-
-
-# =============================================================================
 # FVG TYPES
 # =============================================================================
 
@@ -364,9 +414,111 @@ INVALID = "INVALID"
 
 
 # =============================================================================
-# SAFETY
+# NUMERICAL SAFETY
 # =============================================================================
 
 MIN_FINITE_PRICE = 0.0
 
 EPSILON = 1e-12
+
+
+# =============================================================================
+# PRICE PRECISION
+# =============================================================================
+
+DEFAULT_PRICE_PRECISION = 8
+
+
+# =============================================================================
+# CONFIGURATION VALIDATION
+# =============================================================================
+
+def _validate_weight_group(
+    name: str,
+    weights: tuple[float, ...],
+) -> None:
+    """
+    Validate that a weighting group is normalized.
+
+    This runs at import time so an accidental configuration change cannot
+    silently produce incorrectly normalized scoring.
+    """
+
+    total = sum(weights)
+
+    if abs(total - 1.0) > EPSILON:
+        raise ValueError(
+            f"{name} must sum to 1.0; received {total!r}."
+        )
+
+
+def _validate_score_range(
+    name: str,
+    value: float,
+) -> None:
+    """
+    Validate that a score-like constant remains within 0-100.
+    """
+
+    if not (
+        MIN_SCORE
+        <= float(value)
+        <= MAX_SCORE
+    ):
+        raise ValueError(
+            f"{name} must be between "
+            f"{MIN_SCORE} and {MAX_SCORE}; "
+            f"received {value!r}."
+        )
+
+
+_validate_weight_group(
+    "CONFLUENCE_WEIGHTS",
+    (
+        TREND_WEIGHT,
+        MARKET_STRUCTURE_WEIGHT,
+        LIQUIDITY_WEIGHT,
+        SWEEP_WEIGHT,
+        ORDER_BLOCK_WEIGHT,
+        SMC_WEIGHT,
+        VOLUME_WEIGHT,
+        SESSION_WEIGHT,
+        HTF_WEIGHT,
+        DISPLACEMENT_WEIGHT,
+    ),
+)
+
+_validate_weight_group(
+    "PROBABILITY_WEIGHTS",
+    (
+        PROBABILITY_BASE_WEIGHT,
+        PROBABILITY_STRENGTH_WEIGHT,
+        PROBABILITY_QUALITY_WEIGHT,
+        PROBABILITY_CONFLUENCE_WEIGHT,
+        PROBABILITY_FRESHNESS_WEIGHT,
+        PROBABILITY_DISPLACEMENT_WEIGHT,
+    ),
+)
+
+_validate_weight_group(
+    "CONFIDENCE_WEIGHTS",
+    (
+        CONFIDENCE_QUALITY_WEIGHT,
+        CONFIDENCE_PROBABILITY_WEIGHT,
+        CONFIDENCE_CONFLUENCE_WEIGHT,
+        CONFIDENCE_STRENGTH_WEIGHT,
+        CONFIDENCE_VALIDITY_WEIGHT,
+    ),
+)
+
+_validate_weight_group(
+    "RANKING_WEIGHTS",
+    (
+        RANKING_CONFIDENCE_WEIGHT,
+        RANKING_PROBABILITY_WEIGHT,
+        RANKING_QUALITY_WEIGHT,
+        RANKING_CONFLUENCE_WEIGHT,
+        RANKING_STRENGTH_WEIGHT,
+        RANKING_FRESHNESS_WEIGHT,
+    ),
+)
