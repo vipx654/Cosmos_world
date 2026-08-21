@@ -1,25 +1,27 @@
 """
 ===============================================================================
-COSMOS Fair Value Gap Confidence Engine V3
+COSMOS Fair Value Gap Confidence Engine V4
 
-Produces the final confidence score for each Fair Value Gap.
+Produces the final structural confidence score for each Fair Value Gap.
 
 Responsibilities
 ----------------
-- Combine finalized FVG quality signals.
-- Incorporate probability, strength and confluence-ready inputs.
+- Combine finalized FVG structural signals.
+- Incorporate probability and strength.
+- Consume optional confluence information when available.
 - Respect lifecycle / mitigation state.
 - Respect validity and inversion state.
-- Produce deterministic 0-100 confidence.
+- Produce deterministic bounded 0-100 confidence.
 - Generate explainable confidence evidence.
-- Remain safe to run repeatedly.
+- Remain safe to execute repeatedly.
+- Avoid feedback loops from previously calculated confidence.
 
 Design
 ------
 Confidence is NOT a win-rate prediction.
 
-It is a normalized structural confidence score describing how strongly
-COSMOS currently supports the FVG as an actionable market structure.
+It represents COSMOS's current structural confidence that an FVG remains
+actionable based on the information actually supplied by upstream engines.
 
 Pipeline position:
 
@@ -49,27 +51,27 @@ License: MIT
 from __future__ import annotations
 
 from ai.agents.fvg.constants import (
+    CONFIDENCE_CONFLUENCE_WEIGHT,
     CONFIDENCE_PROBABILITY_WEIGHT,
     CONFIDENCE_QUALITY_WEIGHT,
     CONFIDENCE_STRENGTH_WEIGHT,
     CONFIDENCE_VALIDITY_WEIGHT,
-    CONFIDENCE_CONFLUENCE_WEIGHT,
     DEFAULT_CONFIDENCE,
-    MAX_CONFIDENCE,
-    MIN_CONFIDENCE,
-    PARTIAL_MITIGATION_PENALTY,
-    DEEP_MITIGATION_PENALTY,
+    EXTREME_QUALITY,
     FULL_FILL_PENALTY,
+    HIGH_QUALITY,
     INVALIDATION_PENALTY,
+    MAX_CONFIDENCE,
+    MAX_EVIDENCE_BONUS,
+    MIN_CONFIDENCE,
+    MIN_EVIDENCE_FOR_BONUS,
+    PARTIAL_MITIGATION_PENALTY,
     POTENTIAL_INVERSION_PENALTY,
     CONFIRMED_INVERSION_PENALTY,
-    UNTOUCHED_BONUS,
-    MIN_EVIDENCE_FOR_BONUS,
     STRONG_EVIDENCE_COUNT,
-    MAX_EVIDENCE_BONUS,
-    HIGH_QUALITY,
+    UNTOUCHED_BONUS,
     VERY_HIGH_QUALITY,
-    EXTREME_QUALITY,
+    DEEP_MITIGATION_PENALTY,
 )
 
 from ai.agents.fvg.models import (
@@ -86,29 +88,28 @@ class ConfidenceEngine:
 
     Important
     ---------
-    This score is NOT a statistically validated probability of winning a
-    trade. It represents COSMOS's current structural confidence in the FVG.
+    Confidence is not a statistically validated probability of winning a
+    trade.
 
-    The engine is intentionally:
+    It represents COSMOS's current structural confidence in the FVG.
 
-        deterministic
-        bounded
-        explainable
-        idempotent
-        dependency-safe
+    Properties
+    ----------
+    deterministic
+        Same FVG state produces the same score.
 
-    Future versions can consume additional confluence signals such as:
+    bounded
+        Output is always between 0 and 100.
 
-        - trend
-        - market structure
-        - liquidity
-        - sweep
-        - order block
-        - SMC
-        - volume
-        - session
-        - HTF alignment
-        - displacement
+    explainable
+        Confidence labels and evidence are attached to the FVG.
+
+    idempotent
+        Running the engine repeatedly does not progressively alter the score
+        merely because the previous confidence value was stored on the FVG.
+
+    dependency-safe
+        Missing optional confluence information does not break analysis.
     """
 
     _LABELS = {
@@ -118,22 +119,19 @@ class ConfidenceEngine:
         "low": "Low FVG Confidence",
     }
 
+    # =========================================================================
+    # PUBLIC API
+    # =========================================================================
+
     def analyze(
         self,
         fvgs: list[FairValueGap],
     ) -> list[FairValueGap]:
         """
-        Calculate final confidence for every FVG.
+        Calculate confidence for every supplied FVG.
 
-        Parameters
-        ----------
-        fvgs:
-            Detected and already processed FVG objects.
-
-        Returns
-        -------
-        list[FairValueGap]
-            The same FVG objects with updated confidence/evidence.
+        The same FVG objects are returned after their confidence and evidence
+        have been updated.
         """
 
         if not fvgs:
@@ -153,35 +151,61 @@ class ConfidenceEngine:
         fvg: FairValueGap,
     ) -> None:
         """
-        Calculate confidence for one FVG.
+        Calculate confidence for a single FVG.
         """
 
         # ---------------------------------------------------------------------
-        # Normalize source values.
+        # Normalize upstream signals.
         # ---------------------------------------------------------------------
 
         probability = self._bounded(
-            fvg.probability,
+            getattr(
+                fvg,
+                "probability",
+                DEFAULT_CONFIDENCE,
+            )
         )
 
         strength = self._bounded(
-            fvg.strength,
+            getattr(
+                fvg,
+                "strength",
+                DEFAULT_CONFIDENCE,
+            )
         )
 
         quality = self._derive_quality(
             fvg,
+            probability=probability,
+            strength=strength,
         )
 
         validity = (
             MAX_CONFIDENCE
-            if fvg.valid
+            if bool(
+                getattr(
+                    fvg,
+                    "valid",
+                    True,
+                )
+            )
             else MIN_CONFIDENCE
         )
 
+        confluence = self._existing_confluence(
+            fvg,
+        )
+
         # ---------------------------------------------------------------------
-        # Base weighted confidence.
+        # Weighted base score.
         #
-        # All components are normalized to 0-100.
+        # The configured weights sum to 1.0:
+        #
+        # quality      = 30%
+        # probability  = 20%
+        # strength     = 15%
+        # validity     = 10%
+        # confluence   = 25%
         # ---------------------------------------------------------------------
 
         confidence = (
@@ -196,29 +220,13 @@ class ConfidenceEngine:
             +
             validity
             * CONFIDENCE_VALIDITY_WEIGHT
-        )
-
-        # ---------------------------------------------------------------------
-        # Confluence placeholder.
-        #
-        # Current FVG model does not yet expose a dedicated confluence score.
-        # Therefore the existing confidence acts as the neutral confluence
-        # input rather than inventing external intelligence.
-        # ---------------------------------------------------------------------
-
-        confluence = self._existing_confluence(
-            fvg,
-        )
-
-        confidence = (
-            confidence
             +
             confluence
             * CONFIDENCE_CONFLUENCE_WEIGHT
         )
 
         # ---------------------------------------------------------------------
-        # Lifecycle adjustments.
+        # Lifecycle.
         # ---------------------------------------------------------------------
 
         confidence += self._lifecycle_adjustment(
@@ -226,7 +234,7 @@ class ConfidenceEngine:
         )
 
         # ---------------------------------------------------------------------
-        # Inversion adjustments.
+        # Inversion.
         # ---------------------------------------------------------------------
 
         confidence += self._inversion_adjustment(
@@ -242,10 +250,16 @@ class ConfidenceEngine:
         )
 
         # ---------------------------------------------------------------------
-        # Invalidated FVGs receive a hard safety reduction.
+        # Hard validity protection.
         # ---------------------------------------------------------------------
 
-        if not fvg.valid:
+        if not bool(
+            getattr(
+                fvg,
+                "valid",
+                True,
+            )
+        ):
             confidence -= INVALIDATION_PENALTY
 
         # ---------------------------------------------------------------------
@@ -274,9 +288,9 @@ class ConfidenceEngine:
         value: float,
     ) -> float:
         """
-        Clamp a numeric score to the configured 0-100 range.
+        Clamp a value to the configured confidence range.
 
-        Invalid numeric input falls back to the neutral confidence level.
+        Invalid numeric values return the neutral score.
         """
 
         try:
@@ -287,8 +301,16 @@ class ConfidenceEngine:
         ):
             return DEFAULT_CONFIDENCE
 
-        if value != value:  # NaN
+        # NaN
+        if value != value:
             return DEFAULT_CONFIDENCE
+
+        # Positive / negative infinity.
+        if value == float("inf"):
+            return MAX_CONFIDENCE
+
+        if value == float("-inf"):
+            return MIN_CONFIDENCE
 
         return max(
             MIN_CONFIDENCE,
@@ -305,34 +327,59 @@ class ConfidenceEngine:
     def _derive_quality(
         self,
         fvg: FairValueGap,
+        *,
+        probability: float,
+        strength: float,
     ) -> float:
         """
-        Derive structural quality from the available FVG signals.
+        Derive structural quality from upstream signals.
 
-        If future models expose an explicit quality_score field, this method
-        can consume it directly without changing the orchestration pipeline.
+        Important:
+            Previously calculated confidence is deliberately NOT included.
+
+        This prevents:
+
+            old confidence
+                ↓
+            quality
+                ↓
+            new confidence
+                ↓
+            quality
+                ↓
+            ...
+
+        from creating a feedback loop when the engine is executed repeatedly.
         """
 
-        strength = self._bounded(
-            fvg.strength,
+        evidence_count = len(
+            self._unique_evidence(
+                fvg,
+            )
         )
 
-        probability = self._bounded(
-            fvg.probability,
-        )
+        # ---------------------------------------------------------------------
+        # Core structural quality.
+        # ---------------------------------------------------------------------
 
-        existing_confidence = self._bounded(
-            fvg.confidence,
-        )
-
-        # Weighted structural quality.
         quality = (
-            strength * 0.45
+            strength * 0.55
             +
-            probability * 0.30
-            +
-            existing_confidence * 0.25
+            probability * 0.45
         )
+
+        # ---------------------------------------------------------------------
+        # Evidence quality modifier.
+        #
+        # Evidence is intentionally capped so evidence spam cannot dominate
+        # the structural inputs.
+        # ---------------------------------------------------------------------
+
+        if evidence_count >= STRONG_EVIDENCE_COUNT:
+            quality += 5.0
+
+        elif evidence_count >= MIN_EVIDENCE_FOR_BONUS:
+            quality += 2.0
 
         return self._bounded(
             quality,
@@ -347,15 +394,32 @@ class ConfidenceEngine:
         fvg: FairValueGap,
     ) -> float:
         """
-        Return currently available confluence information.
+        Return the best currently available confluence score.
 
-        The current FairValueGap model does not contain a dedicated
-        confluence_score field, so we derive a conservative proxy from
-        evidence density.
+        If a future FairValueGap model exposes `confluence_score`, it is
+        consumed automatically.
 
-        This avoids fabricating intelligence that the upstream engines have
-        not actually supplied.
+        Otherwise a conservative evidence-density proxy is used.
+
+        No external intelligence is fabricated.
         """
+
+        explicit = getattr(
+            fvg,
+            "confluence_score",
+            None,
+        )
+
+        if explicit is not None:
+            try:
+                return self._bounded(
+                    float(explicit)
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                pass
 
         evidence_count = len(
             self._unique_evidence(
@@ -366,7 +430,9 @@ class ConfidenceEngine:
         if evidence_count >= STRONG_EVIDENCE_COUNT:
             return 85.0
 
-        if evidence_count >= MIN_EVIDENCE_FOR_BONUS + 2:
+        if evidence_count >= (
+            MIN_EVIDENCE_FOR_BONUS + 2
+        ):
             return 70.0
 
         if evidence_count >= MIN_EVIDENCE_FOR_BONUS:
@@ -389,12 +455,46 @@ class ConfidenceEngine:
         Apply lifecycle-specific confidence adjustments.
         """
 
-        status = fvg.status
-        mitigation = fvg.mitigation_status
+        status = getattr(
+            fvg,
+            "status",
+            FVGStatus.FRESH,
+        )
+
+        mitigation = getattr(
+            fvg,
+            "mitigation_status",
+            MitigationStatus.UNTOUCHED,
+        )
+
+        fill_ratio = 0.0
+
+        try:
+            fill_ratio = max(
+                0.0,
+                min(
+                    1.0,
+                    float(
+                        getattr(
+                            fvg,
+                            "fill_ratio",
+                            0.0,
+                        )
+                    ),
+                ),
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            fill_ratio = 0.0
 
         adjustment = 0.0
 
-        # Fresh untouched FVGs retain the strongest structural premium.
+        # ---------------------------------------------------------------------
+        # Fresh untouched FVG.
+        # ---------------------------------------------------------------------
+
         if (
             status == FVGStatus.FRESH
             and
@@ -402,25 +502,52 @@ class ConfidenceEngine:
         ):
             adjustment += UNTOUCHED_BONUS
 
-        elif status == FVGStatus.PARTIAL:
-            adjustment -= PARTIAL_MITIGATION_PENALTY
+        # ---------------------------------------------------------------------
+        # Partial mitigation.
+        # ---------------------------------------------------------------------
 
-            # Deep mitigation is more significant than normal partial
-            # mitigation.
-            if fvg.fill_ratio >= 0.75:
-                adjustment -= DEEP_MITIGATION_PENALTY
+        elif status == FVGStatus.PARTIAL:
+
+            adjustment -= (
+                PARTIAL_MITIGATION_PENALTY
+            )
+
+            if fill_ratio >= 0.75:
+                adjustment -= (
+                    DEEP_MITIGATION_PENALTY
+                )
+
+        # ---------------------------------------------------------------------
+        # Tested.
+        # ---------------------------------------------------------------------
 
         elif status == FVGStatus.TESTED:
-            adjustment -= PARTIAL_MITIGATION_PENALTY
+            adjustment -= (
+                PARTIAL_MITIGATION_PENALTY
+            )
+
+        # ---------------------------------------------------------------------
+        # Filled.
+        # ---------------------------------------------------------------------
 
         elif status == FVGStatus.FILLED:
-            adjustment -= FULL_FILL_PENALTY
+            adjustment -= (
+                FULL_FILL_PENALTY
+            )
+
+        # ---------------------------------------------------------------------
+        # Invalid.
+        # ---------------------------------------------------------------------
 
         elif status == FVGStatus.INVALID:
-            adjustment -= INVALIDATION_PENALTY
+            adjustment -= (
+                INVALIDATION_PENALTY
+            )
 
-        # Explicit mitigation state takes precedence over ambiguous lifecycle
-        # labels.
+        # ---------------------------------------------------------------------
+        # Explicit mitigation state has priority.
+        # ---------------------------------------------------------------------
+
         if mitigation == MitigationStatus.FULL:
             adjustment -= FULL_FILL_PENALTY
 
@@ -440,18 +567,24 @@ class ConfidenceEngine:
         """
         Apply inversion penalties.
 
-        An IFVG remains potentially useful, but the original directional
-        premise has been invalidated.
+        An inverted FVG may remain useful as an IFVG, but the original
+        directional thesis has been invalidated.
         """
 
+        inversion_status = getattr(
+            fvg,
+            "inversion_status",
+            InversionStatus.NONE,
+        )
+
         if (
-            fvg.inversion_status
+            inversion_status
             == InversionStatus.CONFIRMED
         ):
             return -CONFIRMED_INVERSION_PENALTY
 
         if (
-            fvg.inversion_status
+            inversion_status
             == InversionStatus.POTENTIAL
         ):
             return -POTENTIAL_INVERSION_PENALTY
@@ -467,8 +600,9 @@ class ConfidenceEngine:
         fvg: FairValueGap,
     ) -> float:
         """
-        Reward evidence density without allowing evidence spam to dominate
-        the actual structural score.
+        Reward meaningful evidence density.
+
+        Evidence contribution is capped.
         """
 
         evidence_count = len(
@@ -480,7 +614,9 @@ class ConfidenceEngine:
         if evidence_count >= STRONG_EVIDENCE_COUNT:
             return MAX_EVIDENCE_BONUS
 
-        if evidence_count >= MIN_EVIDENCE_FOR_BONUS + 2:
+        if evidence_count >= (
+            MIN_EVIDENCE_FOR_BONUS + 2
+        ):
             return 5.0
 
         if evidence_count >= MIN_EVIDENCE_FOR_BONUS:
@@ -493,14 +629,26 @@ class ConfidenceEngine:
         fvg: FairValueGap,
     ) -> list[str]:
         """
-        Return evidence without duplicates while preserving order.
+        Return unique non-empty evidence while preserving order.
         """
 
         seen: set[str] = set()
         result: list[str] = []
 
-        for item in fvg.evidence:
-            text = str(item).strip()
+        evidence = getattr(
+            fvg,
+            "evidence",
+            [],
+        )
+
+        if evidence is None:
+            return result
+
+        for item in evidence:
+
+            text = str(
+                item
+            ).strip()
 
             if not text:
                 continue
@@ -522,38 +670,56 @@ class ConfidenceEngine:
         fvg: FairValueGap,
     ) -> None:
         """
-        Replace the previous confidence label with the current label.
+        Update the confidence label without creating duplicates.
 
-        This makes the engine idempotent: repeatedly running the engine does
-        not create duplicate or contradictory confidence labels.
+        Existing confidence labels are removed before the new label is added.
         """
 
         labels = set(
             self._LABELS.values()
         )
 
+        evidence = getattr(
+            fvg,
+            "evidence",
+            [],
+        )
+
         fvg.evidence = [
             item
-            for item in fvg.evidence
-            if item not in labels
+            for item in evidence
+            if str(item).strip()
+            not in labels
         ]
 
-        confidence = fvg.confidence
+        confidence = self._bounded(
+            fvg.confidence,
+        )
 
         if confidence >= EXTREME_QUALITY:
-            label = self._LABELS["very_high"]
+            label = self._LABELS[
+                "very_high"
+            ]
 
         elif confidence >= VERY_HIGH_QUALITY:
-            label = self._LABELS["very_high"]
+            label = self._LABELS[
+                "very_high"
+            ]
 
         elif confidence >= HIGH_QUALITY:
-            label = self._LABELS["high"]
+            label = self._LABELS[
+                "high"
+            ]
 
         elif confidence >= 55.0:
-            label = self._LABELS["moderate"]
+            label = self._LABELS[
+                "moderate"
+            ]
 
         else:
-            label = self._LABELS["low"]
+            label = self._LABELS[
+                "low"
+            ]
 
         fvg.evidence.append(
             label
